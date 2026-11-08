@@ -236,27 +236,68 @@ void clearException(JNIEnv* env) {
 
 void readVersionHistory(AppState& s) {
     if (!s.app || !s.app->activity || !s.app->activity->internalDataPath) return;
-    const std::string path = std::string(s.app->activity->internalDataPath) + "/bedrock_versions.txt";
-    std::string previous;
+
+    const std::string path =
+        std::string(s.app->activity->internalDataPath) + "/bedrock_versions.txt";
+    const std::string temporaryPath = path + ".tmp";
+    constexpr size_t kMaximumHistoryEntries = 20;
+
+    std::vector<std::string> entries;
     {
         std::ifstream input(path);
         std::string line;
-        while (std::getline(input, line)) previous = line;
-    }
-    if (s.installed) {
-        const std::string current = s.version + "|" + std::to_string(s.versionCode) +
-                                    "|" + std::to_string(s.lastUpdateTime);
-        if (previous != current) {
-            std::ofstream output(path, std::ios::app);
-            if (output) output << current << "\n";
-            previous = current;
+        while (std::getline(input, line)) {
+            if (!line.empty()) entries.push_back(line);
         }
     }
-    if (!previous.empty()) {
-        const auto first = previous.find('|');
-        const auto second = previous.find('|', first == std::string::npos ? first : first + 1);
-        s.history = first == std::string::npos ? previous : previous.substr(0, first);
-        if (second != std::string::npos) s.history += " CODE " + previous.substr(first + 1, second - first - 1);
+
+    if (s.installed) {
+        const std::string current = s.version + "|" +
+            std::to_string(s.versionCode) + "|" +
+            std::to_string(s.lastUpdateTime);
+
+        if (entries.empty() || entries.back() != current) {
+            entries.push_back(current);
+        }
+    }
+
+    if (entries.size() > kMaximumHistoryEntries) {
+        entries.erase(entries.begin(),
+            entries.end() - static_cast<std::ptrdiff_t>(kMaximumHistoryEntries));
+    }
+
+    {
+        std::ofstream output(temporaryPath, std::ios::trunc);
+        if (output) {
+            for (const auto& entry : entries) output << entry << "\n";
+            output.flush();
+            if (output.good()) {
+                output.close();
+                if (std::rename(temporaryPath.c_str(), path.c_str()) != 0) {
+                    std::remove(temporaryPath.c_str());
+                    LOGE("Could not atomically replace version history file");
+                }
+            } else {
+                LOGE("Could not write version history file");
+                output.close();
+                std::remove(temporaryPath.c_str());
+            }
+        } else {
+            LOGE("Could not open version history temporary file");
+        }
+    }
+
+    if (!entries.empty()) {
+        const std::string& latest = entries.back();
+        const auto first = latest.find('|');
+        const auto second = latest.find('|',
+            first == std::string::npos ? first : first + 1);
+        s.history = first == std::string::npos
+            ? latest : latest.substr(0, first);
+        if (second != std::string::npos) {
+            s.history += " CODE " +
+                latest.substr(first + 1, second - first - 1);
+        }
     }
 }
 
@@ -302,8 +343,27 @@ void detectBedrock(AppState& s) {
                 env->ReleaseStringUTFChars(name, chars);
             }
         }
-        if (codeField) s.versionCode = env->GetIntField(info, codeField);
+        // Android 9+ exposes the full 64-bit version code. Keep the legacy
+        // field only for API 23-27 devices.
+        jclass buildVersionClass = env->FindClass("android/os/Build$VERSION");
+        jfieldID sdkIntField = buildVersionClass
+            ? env->GetStaticFieldID(buildVersionClass, "SDK_INT", "I") : nullptr;
+        const jint sdkInt = sdkIntField
+            ? env->GetStaticIntField(buildVersionClass, sdkIntField) : 0;
+
+        if (sdkInt >= 28) {
+            jmethodID getLongVersionCode =
+                env->GetMethodID(infoClass, "getLongVersionCode", "()J");
+            if (getLongVersionCode) {
+                s.versionCode = env->CallLongMethod(info, getLongVersionCode);
+            }
+            clearException(env);
+        } else if (codeField) {
+            s.versionCode = env->GetIntField(info, codeField);
+        }
+
         if (updateField) s.lastUpdateTime = env->GetLongField(info, updateField);
+        if (buildVersionClass) env->DeleteLocalRef(buildVersionClass);
         s.installed = true;
         s.status = "OFFICIAL APP DETECTED";
         readVersionHistory(s);
@@ -421,10 +481,12 @@ void draw(AppState& s) {
     rect(20, 438, 320, 54, kPanel);
     text("REFRESH VERSION", 95, 458, 1.9f, kWhite);
 
-    rect(18, 520, 324, 106, kPanel);
-    text("ANDROID CHANNEL INFO", 32, 540, 1.8f, kAccent);
-    text("BETA USES SAME APP", 32, 570, 1.8f, kWhite);
-    text("NO SEPARATE PREVIEW", 32, 594, 1.8f, kMuted);
+    rect(18, 516, 324, 126, kPanel);
+    text("ANDROID BETA CHANNEL", 32, 530, 1.8f, kAccent);
+    text("BETA REPLACES STABLE APP", 32, 552, 1.7f, kWhite);
+    text("PREVIEW IS NOT ON ANDROID", 32, 574, 1.55f, kMuted);
+    rect(30, 590, 300, 38, kAccent);
+    text("MANAGE BETA IN PLAY", 92, 603, 1.65f, kDark);
 
     text("LAST HISTORY ENTRY", 24, 651, 1.7f, kMuted);
     text(s.history.substr(0, 28), 24, 676, 1.7f, kWhite);
@@ -469,6 +531,10 @@ void onCommand(android_app* app, int32_t command) {
                 draw(*s);
             }
             break;
+        case APP_CMD_GAINED_FOCUS:
+            detectBedrock(*s);
+            draw(*s);
+            break;
         default:
             break;
     }
@@ -510,6 +576,17 @@ int32_t onInput(android_app* app, AInputEvent* event) {
     } else if (inside(x, y, 20, 438, 340, 492)) {
         detectBedrock(*s);
         s->status = s->installed ? "INSTALLED VERSION REFRESHED" : "MINECRAFT NOT INSTALLED";
+    } else if (inside(x, y, 30, 590, 330, 628)) {
+        const bool openedMarket = launchIntent(
+            *s, "android.intent.action.VIEW",
+            "market://details?id=com.mojang.minecraftpe", nullptr);
+        const bool openedWeb = openedMarket || launchIntent(
+            *s, "android.intent.action.VIEW",
+            "https://play.google.com/store/apps/details?id=com.mojang.minecraftpe",
+            nullptr);
+        s->status = openedWeb
+            ? "PLAY LISTING: JOIN OR LEAVE BETA"
+            : "COULD NOT OPEN GOOGLE PLAY";
     }
     draw(*s);
     return 1;
@@ -527,8 +604,10 @@ void android_main(android_app* app) {
     while (true) {
         int events = 0;
         android_poll_source* source = nullptr;
-        const int timeout = (app->destroyRequested == 0) ? 16 : 0;
-        while (ALooper_pollOnce(timeout, nullptr, &events,
+
+        // The launcher screen is static between events. Block instead of
+        // redrawing at 60 FPS, which wastes CPU and battery on a phone.
+        while (ALooper_pollOnce(-1, nullptr, &events,
                                 reinterpret_cast<void**>(&source)) >= 0) {
             if (source) source->process(app, source);
             if (app->destroyRequested != 0) {
@@ -536,8 +615,10 @@ void android_main(android_app* app) {
                 return;
             }
         }
-        if (state.display != EGL_NO_DISPLAY && state.surface != EGL_NO_SURFACE) {
-            draw(state);
+
+        if (app->destroyRequested != 0) {
+            destroyGraphics(state);
+            return;
         }
     }
 }
