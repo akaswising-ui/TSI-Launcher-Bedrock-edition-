@@ -43,6 +43,13 @@ jobs:
             echo "Unexpected Kotlin or Java application source found."
             exit 1
           fi
+          if find . -type f -name '*.kts' -not -path './.git/*' | grep -q .; then
+            echo "Kotlin Gradle scripts are not allowed in this C++-only project."
+            exit 1
+          fi
+          test -f build.gradle
+          test -f settings.gradle
+          test -f app/build.gradle
           test -f app/src/main/cpp/native-lib.cpp
           test -f app/src/main/cpp/CMakeLists.txt
 
@@ -56,7 +63,7 @@ jobs:
           test -s "$APK"
           unzip -l "$APK" | grep -q "lib/arm64-v8a/libtsi_bedrock.so"
           unzip -l "$APK" | grep -q "lib/armeabi-v7a/libtsi_bedrock.so"
-          echo "Verified Conshite-style C++ NativeActivity launcher library for arm64-v8a and armeabi-v7a."
+          echo "Verified C++ NativeActivity launcher library for arm64-v8a and armeabi-v7a."
 
       - name: Upload native APK
         uses: actions/upload-artifact@v4
