@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "TSI-Launcher-Bedrock-Edition"
-include(":app")
+rootProject.name = 'TSI-Launcher-Bedrock-Edition'
+include ':app'
