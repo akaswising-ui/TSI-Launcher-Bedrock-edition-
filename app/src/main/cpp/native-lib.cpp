@@ -577,6 +577,7 @@ bool forwardSharedApkToInstaller(AppState& s) {
     clearException(env);
 
     bool forwarded = false;
+    bool isShare = false;
     if (incoming) {
         jclass intentClass = env->GetObjectClass(incoming);
         jmethodID getAction = intentClass
@@ -587,7 +588,6 @@ bool forwardSharedApkToInstaller(AppState& s) {
             : nullptr;
         clearException(env);
 
-        bool isShare = false;
         if (action) {
             const char* value = env->GetStringUTFChars(action, nullptr);
             if (value) {
