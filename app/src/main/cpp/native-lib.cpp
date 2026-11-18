@@ -31,6 +31,21 @@ constexpr int kAnimationMilliseconds = 380;
 using Clock = std::chrono::steady_clock;
 
 enum class Page { Home = 0, Versions = 1, Settings = 2 };
+enum class TouchTarget {
+    None,
+    NavHome, NavVersions, NavSettings,
+    HomePlay, HomeVersions, HomeRefresh, HomeStore, HomeBeta,
+    VersionRow, VersionRefresh,
+    SettingsStore, SettingsBeta
+};
+
+struct TouchBounds {
+    float x;
+    float y;
+    float width;
+    float height;
+    float radius;
+};
 
 struct AppState {
     android_app* app = nullptr;
@@ -53,6 +68,19 @@ struct AppState {
     Page previousPage = Page::Home;
     bool animationActive = false;
     Clock::time_point animationStart = Clock::now();
+
+    // Direct-manipulation feedback for every interactive surface.
+    bool touchDown = false;
+    TouchTarget downTarget = TouchTarget::None;
+    TouchTarget pressedTarget = TouchTarget::None;
+    float touchX = 0.0f;
+    float touchY = 0.0f;
+    Clock::time_point pressStart = Clock::now();
+    bool rippleActive = false;
+    TouchTarget rippleTarget = TouchTarget::None;
+    float rippleX = 0.0f;
+    float rippleY = 0.0f;
+    Clock::time_point rippleStart = Clock::now();
 };
 
 struct Color { float r, g, b; };
@@ -572,6 +600,112 @@ void drawNavigation(std::vector<float>& vertices, const AppState& s,
     text("SETTINGS", 255, 681, 1.35f, s.page == Page::Settings ? kAccent : kMuted);
 }
 
+Color mixColor(Color a, Color b, float amount) {
+    const float t = std::clamp(amount, 0.0f, 1.0f);
+    return {
+        a.r + (b.r - a.r) * t,
+        a.g + (b.g - a.g) * t,
+        a.b + (b.b - a.b) * t
+    };
+}
+
+void addRing(std::vector<float>& vertices, float cx, float cy,
+             float outerRadius, float thickness, Color color, int sw, int sh) {
+    constexpr int kSegments = 40;
+    const float pi = std::acos(-1.0f);
+    const float innerRadius = std::max(0.5f, outerRadius - thickness);
+    for (int i = 0; i < kSegments; ++i) {
+        const float a1 = (2.0f * pi * i) / kSegments;
+        const float a2 = (2.0f * pi * (i + 1)) / kSegments;
+        const float co1 = std::cos(a1);
+        const float si1 = std::sin(a1);
+        const float co2 = std::cos(a2);
+        const float si2 = std::sin(a2);
+        const float xOuter1 = cx + co1 * outerRadius;
+        const float yOuter1 = cy + si1 * outerRadius;
+        const float xOuter2 = cx + co2 * outerRadius;
+        const float yOuter2 = cy + si2 * outerRadius;
+        const float xInner1 = cx + co1 * innerRadius;
+        const float yInner1 = cy + si1 * innerRadius;
+        const float xInner2 = cx + co2 * innerRadius;
+        const float yInner2 = cy + si2 * innerRadius;
+        addVertex(vertices, xOuter1, yOuter1, color, sw, sh);
+        addVertex(vertices, xOuter2, yOuter2, color, sw, sh);
+        addVertex(vertices, xInner1, yInner1, color, sw, sh);
+        addVertex(vertices, xInner1, yInner1, color, sw, sh);
+        addVertex(vertices, xOuter2, yOuter2, color, sw, sh);
+        addVertex(vertices, xInner2, yInner2, color, sw, sh);
+    }
+}
+
+void addRoundedOutline(std::vector<float>& vertices, float x, float y,
+                       float width, float height, float radius,
+                       float thickness, Color color, int sw, int sh) {
+    const float t = std::max(1.0f, thickness);
+    const float r = std::max(2.0f, radius);
+    addRoundedRect(vertices, x + r, y, width - 2.0f * r, t, t * 0.5f,
+                   color, sw, sh);
+    addRoundedRect(vertices, x + r, y + height - t, width - 2.0f * r, t,
+                   t * 0.5f, color, sw, sh);
+    addRect(vertices, x, y + r, t, std::max(0.0f, height - 2.0f * r),
+            color, sw, sh);
+    addRect(vertices, x + width - t, y + r, t,
+            std::max(0.0f, height - 2.0f * r), color, sw, sh);
+}
+
+TouchBounds boundsForTarget(TouchTarget target) {
+    switch (target) {
+        case TouchTarget::NavHome: return {10, 658, 110, 53, 14};
+        case TouchTarget::NavVersions: return {122, 658, 110, 53, 14};
+        case TouchTarget::NavSettings: return {234, 658, 116, 53, 14};
+        case TouchTarget::HomePlay: return {18, 250, 324, 56, 14};
+        case TouchTarget::HomeVersions: return {18, 321, 156, 49, 12};
+        case TouchTarget::HomeRefresh: return {186, 321, 156, 49, 12};
+        case TouchTarget::HomeStore: return {18, 385, 324, 48, 12};
+        case TouchTarget::HomeBeta: return {30, 548, 300, 43, 11};
+        case TouchTarget::VersionRow: return {18, 261, 324, 250, 10};
+        case TouchTarget::VersionRefresh: return {18, 587, 324, 43, 11};
+        case TouchTarget::SettingsStore: return {18, 251, 324, 48, 12};
+        case TouchTarget::SettingsBeta: return {18, 313, 324, 48, 12};
+        case TouchTarget::None: break;
+    }
+    return {0, 0, 0, 0, 0};
+}
+
+void drawTouchFeedback(std::vector<float>& vertices, const AppState& s,
+                       float scale, float ox, float oy, int sw, int sh) {
+    if (s.touchDown && s.pressedTarget != TouchTarget::None) {
+        const TouchBounds b = boundsForTarget(s.pressedTarget);
+        const float elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - s.pressStart).count();
+        const float press = std::clamp(elapsed / 95.0f, 0.0f, 1.0f);
+        const float eased = 1.0f - std::pow(1.0f - press, 2.0f);
+        const float inset = 1.5f + 1.2f * eased;
+        const Color pressColor = mixColor(kAccent, kWhite, 0.16f * eased);
+        addRoundedOutline(vertices,
+            ox + (b.x + inset) * scale, oy + (b.y + inset) * scale,
+            (b.width - 2.0f * inset) * scale,
+            (b.height - 2.0f * inset) * scale,
+            std::max(3.0f, b.radius - inset) * scale,
+            (1.2f + eased * 0.8f) * scale, pressColor, sw, sh);
+        addRing(vertices, ox + s.touchX * scale, oy + s.touchY * scale,
+                (4.0f + 8.0f * eased) * scale, 1.6f * scale,
+                mixColor(kAccent, kPanelBright, 0.22f), sw, sh);
+    }
+
+    if (s.rippleActive && s.rippleTarget != TouchTarget::None) {
+        const float elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - s.rippleStart).count();
+        const float linear = std::clamp(elapsed / 330.0f, 0.0f, 1.0f);
+        const float eased = 1.0f - std::pow(1.0f - linear, 3.0f);
+        const float radius = (3.0f + 34.0f * eased) * scale;
+        const float thickness = (2.4f - 1.1f * linear) * scale;
+        const Color rippleColor = mixColor(kAccent, kPanelBright, linear * 0.88f);
+        addRing(vertices, ox + s.rippleX * scale, oy + s.rippleY * scale,
+                radius, thickness, rippleColor, sw, sh);
+    }
+}
+
 void draw(AppState& s) {
     if (s.display == EGL_NO_DISPLAY || s.surface == EGL_NO_SURFACE ||
         s.width <= 0 || s.height <= 0) return;
@@ -587,7 +721,7 @@ void draw(AppState& s) {
     const float slide = 14.0f * (1.0f - progress);
 
     auto rect = [&](float x, float y, float w, float h, Color color, float radius = 0.0f) {
-        addRoundedRect(vertices, ox + x * scale, oy + y * scale,
+        addRoundedRect(vertices, ox + x * scale, oy + (y + slide) * scale,
                        w * scale, h * scale, radius * scale,
                        color, s.width, s.height);
     };
@@ -687,6 +821,7 @@ void draw(AppState& s) {
     }
 
     drawNavigation(vertices, s, scale, ox, oy, s.width, s.height, progress);
+    drawTouchFeedback(vertices, s, scale, ox, oy, s.width, s.height);
 
     glViewport(0, 0, s.width, s.height);
     glClearColor(kBackground.r, kBackground.g, kBackground.b, 1.0f);
@@ -753,60 +888,140 @@ void handlePlay(AppState& s) {
     startAnimation(s);
 }
 
+TouchTarget targetAt(const AppState& s, float x, float y) {
+    if (inside(x, y, 0, 663, 120, 720)) return TouchTarget::NavHome;
+    if (inside(x, y, 120, 663, 240, 720)) return TouchTarget::NavVersions;
+    if (inside(x, y, 240, 663, 360, 720)) return TouchTarget::NavSettings;
+
+    if (s.page == Page::Home) {
+        if (inside(x, y, 18, 250, 342, 306)) return TouchTarget::HomePlay;
+        if (inside(x, y, 18, 321, 174, 370)) return TouchTarget::HomeVersions;
+        if (inside(x, y, 186, 321, 342, 370)) return TouchTarget::HomeRefresh;
+        if (inside(x, y, 18, 385, 342, 433)) return TouchTarget::HomeStore;
+        if (inside(x, y, 30, 548, 330, 591)) return TouchTarget::HomeBeta;
+    } else if (s.page == Page::Versions) {
+        if (inside(x, y, 18, 261, 342, 511)) return TouchTarget::VersionRow;
+        if (inside(x, y, 18, 587, 342, 630)) return TouchTarget::VersionRefresh;
+    } else if (s.page == Page::Settings) {
+        if (inside(x, y, 18, 251, 342, 299)) return TouchTarget::SettingsStore;
+        if (inside(x, y, 18, 313, 342, 361)) return TouchTarget::SettingsBeta;
+    }
+    return TouchTarget::None;
+}
+
+void activateTarget(AppState& s, TouchTarget target) {
+    switch (target) {
+        case TouchTarget::NavHome:
+            setPage(s, Page::Home);
+            break;
+        case TouchTarget::NavVersions:
+        case TouchTarget::HomeVersions:
+            setPage(s, Page::Versions);
+            break;
+        case TouchTarget::NavSettings:
+            setPage(s, Page::Settings);
+            break;
+        case TouchTarget::HomePlay:
+            handlePlay(s);
+            break;
+        case TouchTarget::HomeRefresh:
+        case TouchTarget::VersionRefresh:
+            detectBedrock(s);
+            s.status = s.installed
+                ? "INSTALLED VERSION REFRESHED" : "MINECRAFT NOT INSTALLED";
+            startAnimation(s);
+            break;
+        case TouchTarget::HomeStore:
+        case TouchTarget::SettingsStore:
+            openPlayListing(s, false);
+            break;
+        case TouchTarget::HomeBeta:
+        case TouchTarget::SettingsBeta:
+            openPlayListing(s, true);
+            break;
+        case TouchTarget::VersionRow:
+            s.status = "SAVED HISTORY IS READ ONLY";
+            startAnimation(s);
+            break;
+        case TouchTarget::None:
+            break;
+    }
+}
+
 int32_t onInput(android_app* app, AInputEvent* event) {
     auto* s = static_cast<AppState*>(app->userData);
     if (!s || AInputEvent_getType(event) != AINPUT_EVENT_TYPE_MOTION) return 0;
-    if (AMotionEvent_getAction(event) != AMOTION_EVENT_ACTION_UP) return 1;
 
     const float scale = std::min(
         static_cast<float>(s->width) / kDesignWidth,
         static_cast<float>(s->height) / kDesignHeight);
-    if (scale <= 0) return 1;
+    if (scale <= 0) return 0;
+
     const float ox = (s->width - kDesignWidth * scale) * 0.5f;
     const float oy = (s->height - kDesignHeight * scale) * 0.5f;
+    const int32_t action = AMotionEvent_getAction(event) & AMOTION_EVENT_ACTION_MASK;
     const float x = (AMotionEvent_getX(event, 0) - ox) / scale;
     const float y = (AMotionEvent_getY(event, 0) - oy) / scale;
 
-    if (inside(x, y, 0, 663, 120, 720)) {
-        setPage(*s, Page::Home);
-    } else if (inside(x, y, 120, 663, 240, 720)) {
-        setPage(*s, Page::Versions);
-    } else if (inside(x, y, 240, 663, 360, 720)) {
-        setPage(*s, Page::Settings);
-    } else if (s->page == Page::Home) {
-        if (inside(x, y, 18, 250, 342, 306)) {
-            handlePlay(*s);
-        } else if (inside(x, y, 18, 321, 174, 370)) {
-            setPage(*s, Page::Versions);
-        } else if (inside(x, y, 186, 321, 342, 370)) {
-            detectBedrock(*s);
-            s->status = s->installed
-                ? "INSTALLED VERSION REFRESHED" : "MINECRAFT NOT INSTALLED";
-            startAnimation(*s);
-        } else if (inside(x, y, 18, 385, 342, 433)) {
-            openPlayListing(*s, false);
-        } else if (inside(x, y, 30, 548, 330, 591)) {
-            openPlayListing(*s, true);
-        }
-    } else if (s->page == Page::Versions) {
-        if (inside(x, y, 18, 261, 342, 511)) {
-            s->status = "SAVED HISTORY IS READ ONLY";
-            startAnimation(*s);
-        } else if (inside(x, y, 18, 587, 342, 630)) {
-            detectBedrock(*s);
-            s->status = s->installed
-                ? "INSTALLED VERSION REFRESHED" : "MINECRAFT NOT INSTALLED";
-            startAnimation(*s);
-        }
-    } else if (s->page == Page::Settings) {
-        if (inside(x, y, 18, 251, 342, 299)) {
-            openPlayListing(*s, false);
-        } else if (inside(x, y, 18, 313, 342, 361)) {
-            openPlayListing(*s, true);
-        }
+    if (action == AMOTION_EVENT_ACTION_DOWN) {
+        s->downTarget = targetAt(*s, x, y);
+        if (s->downTarget == TouchTarget::None) return 0;
+        s->touchDown = true;
+        s->pressedTarget = s->downTarget;
+        s->touchX = x;
+        s->touchY = y;
+        s->pressStart = Clock::now();
+        s->rippleActive = false;
+        draw(*s);
+        return 1;
     }
 
-    draw(*s);
+    if (!s->touchDown) return 0;
+
+    if (action == AMOTION_EVENT_ACTION_MOVE) {
+        s->touchX = x;
+        s->touchY = y;
+        s->pressedTarget = targetAt(*s, x, y) == s->downTarget
+            ? s->downTarget : TouchTarget::None;
+        draw(*s);
+        return 1;
+    }
+
+    if (action == AMOTION_EVENT_ACTION_CANCEL) {
+        s->touchDown = false;
+        s->pressedTarget = TouchTarget::None;
+        s->downTarget = TouchTarget::None;
+        draw(*s);
+        return 1;
+    }
+
+    if (action == AMOTION_EVENT_ACTION_UP) {
+        s->touchX = x;
+        s->touchY = y;
+        const TouchTarget releasedTarget = targetAt(*s, x, y);
+        const bool shouldActivate =
+            s->pressedTarget != TouchTarget::None &&
+            releasedTarget == s->downTarget;
+
+        s->touchDown = false;
+        s->pressedTarget = TouchTarget::None;
+        s->downTarget = TouchTarget::None;
+
+        if (shouldActivate) {
+            s->rippleTarget = releasedTarget;
+            s->rippleX = x;
+            s->rippleY = y;
+            s->rippleStart = Clock::now();
+            s->rippleActive = true;
+            activateTarget(*s, releasedTarget);
+        } else {
+            s->rippleActive = false;
+        }
+
+        draw(*s);
+        return 1;
+    }
+
     return 1;
 }
 } // namespace
@@ -822,21 +1037,31 @@ void android_main(android_app* app) {
     while (app->destroyRequested == 0) {
         int events = 0;
         android_poll_source* source = nullptr;
-        const int timeout = state.animationActive ? 16 : -1;
+        const bool touchAnimating = state.touchDown || state.rippleActive;
+        const int timeout = (state.animationActive || touchAnimating) ? 16 : -1;
         const int result = ALooper_pollOnce(
             timeout, nullptr, &events, reinterpret_cast<void**>(&source));
         if (result >= 0 && source) source->process(app, source);
 
+        bool needsFrame = state.touchDown || state.rippleActive;
         if (state.animationActive) {
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 Clock::now() - state.animationStart).count();
             if (elapsed >= kAnimationMilliseconds) {
                 state.animationActive = false;
-                draw(state);
             } else {
-                draw(state);
+                needsFrame = true;
             }
         }
+        if (state.rippleActive) {
+            const auto rippleElapsed =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    Clock::now() - state.rippleStart).count();
+            if (rippleElapsed >= 330) {
+                state.rippleActive = false;
+            }
+        }
+        if (needsFrame) draw(state);
     }
 
     destroyGraphics(state);
