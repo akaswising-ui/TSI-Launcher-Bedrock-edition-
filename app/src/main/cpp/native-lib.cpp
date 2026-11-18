@@ -727,7 +727,7 @@ TouchBounds boundsForTarget(const AppState& s, TouchTarget target) {
         case TouchTarget::NavServers: return {5, 219, 138, 38, 5};
         case TouchTarget::NavNews: return {5, 260, 138, 38, 5};
         case TouchTarget::NavSettings: return {5, 301, 138, 38, 5};
-        case TouchTarget::HomePlay: return {canvasW * 0.5f - 78, 103, 156, 46, 8};
+        case TouchTarget::HomePlay: return {160.0f + (canvasW - 176.0f) * 0.39f, 121, 145, 44, 5};
         case TouchTarget::HeaderPreview: return {contentW * 0.32f + 160, 185, 180, 34, 5};
         case TouchTarget::HeaderRelease: return {contentW * 0.55f + 160, 185, 180, 34, 5};
         case TouchTarget::SearchVersions: return {160, 472, 184, 35, 6};
@@ -1230,8 +1230,8 @@ TouchTarget targetAt(const AppState& s, float x, float y) {
     const float contentW = canvasW - 176.0f;
 
     if (s.page == Page::Home) {
-        if (inside(x, y, canvasW * 0.5f - 78, 141,
-                   canvasW * 0.5f + 110, 165)) return TouchTarget::HomePlay;
+        const float playX = 160.0f + contentW * 0.39f;
+        if (inside(x, y, playX, 121, playX + 145.0f, 165)) return TouchTarget::HomePlay;
         if (inside(x, y, 160 + contentW * 0.29f, 187,
                    160 + contentW * 0.51f, 221)) return TouchTarget::HeaderPreview;
         if (inside(x, y, 160 + contentW * 0.54f, 187,
