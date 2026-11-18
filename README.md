@@ -6,14 +6,19 @@ An Android companion launcher for the official Minecraft Bedrock app. The applic
 
 - **Application entry point:** Android `NativeActivity` loading `libtsi_bedrock.so`.
 - **Rendering:** C++17 and OpenGL ES 2.0, rounded panels and a compact bitmap typeface.
-- **Navigation:** Home, Versions and Settings screens with eased tab transitions. The render loop runs only during transitions or user/system events to avoid an idle 60 FPS battery drain.
+- **Navigation:** Home, Versions and Settings screens with eased tab transitions and animated panel movement.
+- **Touch feedback:** iPhone-inspired press-down scaling, spring-back on release, and an expanding touch ripple on all launcher buttons, tabs and version-history rows. Touch animations are rendered only while a finger is held or a short animation is active; the app does not run an idle 60 FPS loop.
 - **Package detection:** JNI calls into Android `PackageManager` to inspect `com.mojang.minecraftpe`.
 - **Version information:** installed version name, full 64-bit version code on Android 9+, and last update timestamp.
 - **Version library:** locally records the latest 20 installed versions observed by this launcher; the four newest entries are shown in the UI.
 - **Launch:** starts the official installed Minecraft package through Android's package manager.
 - **Store and Beta controls:** opens the official Google Play listing so the user can manage the Minecraft Beta enrollment.
 - **ABIs:** `arm64-v8a` and `armeabi-v7a`.
-- **App version:** 0.3.0.
+- **App version:** 0.4.0.
+
+## Touch animation
+
+The custom OpenGL ES interface handles Android touch down, move, up and cancel events. Interactive elements shrink slightly while pressed, spring back after release, and show a short expanding ripple centered at the touch point. Page transitions animate the panels and labels together. The render loop is active only while these effects are running and blocks while idle.
 
 ## Android version-management limits
 
