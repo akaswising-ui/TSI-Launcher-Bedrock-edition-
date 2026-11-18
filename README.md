@@ -2,37 +2,44 @@
 
 An Android companion launcher for the official Minecraft Bedrock app. The application layer is implemented in **C++17** with Android NDK `NativeActivity`, CMake, EGL and OpenGL ES 2.0. There are no Kotlin or Java application source files.
 
+## Launcher interface (0.5.0)
+
+The interface has been reworked around the supplied wide desktop-launcher reference while remaining an Android app:
+
+- Landscape layout with a dark desktop-style title strip and left navigation sidebar.
+- Sidebar pages: Launch, All Versions, Mods, Servers, News and Settings.
+- Large block-built sunset banner with Play action and Preview / Release channel shortcuts.
+- Two-column version cards and bottom search / Stable / Preview / Beta / All filter controls.
+- Profile and quick-settings surfaces, local version count and app/game status.
+- iPhone-inspired touch-down scaling, spring-back release and expanding ripple feedback.
+- Responsive horizontal canvas expands on wider landscape phone aspect ratios rather than letterboxing the UI.
+- Mods / Add-ons page links to the official Marketplace, a community add-on directory and the Bedrock add-on help guide.
+- Servers page links to the official Minecraft server directory and server-joining guide.
+- News page links to official Minecraft news and Help Center pages.
+
+The layout is a native OpenGL recreation of the reference's structure and visual style; it is not a pixel-for-pixel copy of the Windows desktop image. Desktop-only title-bar buttons are decorative window chrome, not Android window-management controls.
+
 ## Native mobile launcher
 
 - **Application entry point:** Android `NativeActivity` loading `libtsi_bedrock.so`.
 - **Rendering:** C++17 and OpenGL ES 2.0, rounded panels and a compact bitmap typeface.
-- **Navigation:** Home, Versions and Settings screens with eased tab transitions and animated panel movement.
-- **Touch feedback:** iPhone-inspired press-down scaling, spring-back on release, and an expanding touch ripple on all launcher buttons, tabs and version-history rows. Touch animations are rendered only while a finger is held or a short animation is active; the app does not run an idle 60 FPS loop.
 - **Package detection:** JNI calls into Android `PackageManager` to inspect `com.mojang.minecraftpe`.
 - **Version information:** installed version name, full 64-bit version code on Android 9+, and last update timestamp.
-- **Version library:** locally records the latest 20 installed versions observed by this launcher; the four newest entries are shown in the UI.
+- **Version library:** locally records the latest 20 installed versions observed by this launcher.
 - **Launch:** starts the official installed Minecraft package through Android's package manager.
-- **Store and Beta controls:** opens the official Google Play listing so the user can manage the Minecraft Beta enrollment.
+- **Store and Beta controls:** opens the official Google Play listing so the user can manage Minecraft Beta enrollment.
 - **ABIs:** `arm64-v8a` and `armeabi-v7a`.
-- **App version:** 0.4.0.
-
-## Touch animation
-
-The custom OpenGL ES interface handles Android touch down, move, up and cancel events. Interactive elements shrink slightly while pressed, spring back after release, and show a short expanding ripple centered at the touch point. Page transitions animate the panels and labels together. The render loop is active only while these effects are running and blocks while idle.
+- **App version:** 0.5.0.
 
 ## Android version-management limits
 
 The Versions page is a **local history**, not a download catalogue or installer. It can show only versions this launcher has actually observed after it was installed. It cannot recreate versions that were never recorded.
 
-The standard Android Minecraft app uses the package `com.mojang.minecraftpe`. Google Play manages that installation and updates it in place. This launcher does not claim to install arbitrary old APKs, keep multiple official Bedrock versions side by side, downgrade the app, or bypass the Play Store license and package-signature checks.
+The standard Android Minecraft app uses the package `com.mojang.minecraftpe`. Google Play manages that installation and updates it in place. This launcher does not claim to install arbitrary old APKs, keep multiple official Bedrock versions side by side, downgrade the app, or bypass Play Store license and package-signature checks.
 
-Mojang's Android test channel is **Minecraft Beta**, enrolled through the official Google Play listing. Joining Beta replaces the normal Minecraft client; it is not a second independently installed Android client. The Android package API does not expose a reliable flag proving whether a Google Play account is enrolled in Beta. TSI therefore opens the official Play listing for channel changes and refreshes the detected version when the app regains focus.
+Minecraft Beta enrollment is managed through Google Play. Joining Beta replaces the normal Minecraft client; it is not a second independently installed Android client. The Android package API does not expose a reliable flag proving whether a Google Play account is enrolled in Beta. TSI therefore opens the official Play listing for channel changes and refreshes the detected version when the app regains focus.
 
 Back up worlds before changing channels because Beta replaces the normal client and test builds can be unstable.
-
-Official guidance:
-- https://help.minecraft.net/hc/en-us/articles/4423653831821
-- https://help.minecraft.net/hc/en-us/articles/360040841471-How-Do-I-Join-and-Leave-the-Minecraft-Beta
 
 ## Windows launchers are a different platform
 
@@ -64,4 +71,4 @@ APK output:
 
 GitHub Actions builds and verifies the native library for both configured ABIs on pull requests to `main`, pushes to `main`, and manual workflow runs. The uploaded artifact is named `TSI-Launcher-Bedrock-native-debug`.
 
-Device-level launch, touch-target and animation testing still needs to be performed on an Android phone after the CI APK builds.
+Device-level layout, touch-target, game-launch and animation testing still needs to be performed on an Android phone after the CI APK builds.
