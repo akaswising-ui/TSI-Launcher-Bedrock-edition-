@@ -2,39 +2,42 @@
 
 An Android companion launcher for the official Minecraft Bedrock app. The application layer is implemented in **C++17** with Android NDK `NativeActivity`, CMake, EGL and OpenGL ES 2.0. There are no Kotlin or Java application source files.
 
-## Current native implementation
+## Native mobile launcher
 
 - **Application entry point:** Android `NativeActivity` loading `libtsi_bedrock.so`.
-- **UI:** C++17 and OpenGL ES 2.0, with a small built-in bitmap font and touch hit targets.
-- **Package detection:** JNI calls from C++ into Android `PackageManager` to inspect `com.mojang.minecraftpe`.
-- **Version information:** reads the installed version name, full 64-bit version code on Android 9+, and last update timestamp.
-- **Launch:** C++ requests the official Minecraft launch intent through Android package manager.
-- **Store link:** C++ opens the official Google Play listing.
-- **Version history:** app-private version history capped at the latest 20 observed installations/updates.
+- **Rendering:** C++17 and OpenGL ES 2.0, rounded panels and a compact bitmap typeface.
+- **Navigation:** Home, Versions and Settings screens with eased tab transitions. The render loop runs only during transitions or user/system events to avoid an idle 60 FPS battery drain.
+- **Package detection:** JNI calls into Android `PackageManager` to inspect `com.mojang.minecraftpe`.
+- **Version information:** installed version name, full 64-bit version code on Android 9+, and last update timestamp.
+- **Version library:** locally records the latest 20 installed versions observed by this launcher; the four newest entries are shown in the UI.
+- **Launch:** starts the official installed Minecraft package through Android's package manager.
+- **Store and Beta controls:** opens the official Google Play listing so the user can manage the Minecraft Beta enrollment.
 - **ABIs:** `arm64-v8a` and `armeabi-v7a`.
-- **Build:** Android Gradle Plugin, CMake 3.22.1 and NDK 29.0.14206865.
+- **App version:** 0.3.0.
 
-## Android Stable and Beta behaviour
+## Android version-management limits
 
-Mojang's Android test channel is **Minecraft Beta**, enrolled through the official Google Play listing. Joining Beta replaces the normal Minecraft client; Stable and Beta are not two independently installed Android copies. The installed Android package remains `com.mojang.minecraftpe`.
+The Versions page is a **local history**, not a download catalogue or installer. It can show only versions this launcher has actually observed after it was installed. It cannot recreate versions that were never recorded.
 
-Minecraft Preview is not the Android distribution channel. The launcher therefore does not pretend that a separate Android Preview package exists. The Android PackageManager exposes the installed package version, but it does not provide a reliable flag proving whether the user's Google Play account is enrolled in Beta.
+The standard Android Minecraft app uses the package `com.mojang.minecraftpe`. Google Play manages that installation and updates it in place. This launcher does not claim to install arbitrary old APKs, keep multiple official Bedrock versions side by side, downgrade the app, or bypass the Play Store license and package-signature checks.
 
-The native UI provides a **Manage Beta in Play** action that opens the official Minecraft Play listing. The user completes the Join Beta or Leave Beta action in Google Play. TSI refreshes the installed version when the app regains focus; it does not silently change the user's Play testing enrollment. Back up worlds before changing channels because Beta replaces the normal client and test builds can be unstable.
+Mojang's Android test channel is **Minecraft Beta**, enrolled through the official Google Play listing. Joining Beta replaces the normal Minecraft client; it is not a second independently installed Android client. The Android package API does not expose a reliable flag proving whether a Google Play account is enrolled in Beta. TSI therefore opens the official Play listing for channel changes and refreshes the detected version when the app regains focus.
+
+Back up worlds before changing channels because Beta replaces the normal client and test builds can be unstable.
 
 Official guidance:
 - https://help.minecraft.net/hc/en-us/articles/4423653831821
 - https://help.minecraft.net/hc/en-us/articles/360040841471-How-Do-I-Join-and-Leave-the-Minecraft-Beta
 
-## Windows AppX / MSIX is a different platform
+## Windows launchers are a different platform
 
-Microsoft Store AppX/MSIX manifests, package-family URLs, PowerShell and `Add-AppxPackage` are Windows deployment mechanisms. They cannot install or launch Windows packages on Android. They are not part of this Android APK. A separate Windows launcher target would require its own C++/WinRT implementation and Microsoft Store account/entitlement flow.
+The Windows Bedrock Launcher works with Windows Store package formats and Windows deployment APIs. AppX/MSIX packages, PowerShell and Windows package registration cannot be used to install or launch Windows game packages on Android. A matching Android interface is possible, but the Windows installation backend is not portable to an Android APK.
 
 ## Scope and safety
 
-Minecraft Bedrock is proprietary. TSI does not host, patch, downgrade, unpack or redistribute Minecraft game packages or data. Android's package manager and the official signed application remain responsible for installation and updates.
+Minecraft Bedrock is proprietary. TSI does not host, patch, unpack, or redistribute Minecraft game packages or data. Android's package manager and the official signed application remain responsible for game installation and updates.
 
-The version history is local to this TSI installation. It records versions observed by the launcher after an install or update; it cannot recreate versions that were never observed and is not an authoritative Mojang release archive.
+The local version history is stored in the launcher's private app data directory and is capped at 20 entries. It is not an authoritative Mojang release archive.
 
 ## Build
 
@@ -54,8 +57,6 @@ APK output:
 
     app/build/outputs/apk/debug/app-debug.apk
 
-GitHub Actions builds and verifies the native library for both configured ABIs on pushes to `main` and manual workflow runs. The uploaded artifact is named `TSI-Launcher-Bedrock-native-debug`.
+GitHub Actions builds and verifies the native library for both configured ABIs on pull requests to `main`, pushes to `main`, and manual workflow runs. The uploaded artifact is named `TSI-Launcher-Bedrock-native-debug`.
 
-## Current development limits
-
-This migration supplies a native C++ launcher shell, package detection, official app launch, Google Play hand-off and local version history, Google Play Beta hand-off, full-width version-code support and event-driven rendering to reduce idle battery use. It does not install Windows AppX files, fetch arbitrary Minecraft builds, bypass store licensing, or provide a second Android Minecraft install. Device-level launch and touch testing still needs to be performed on an Android phone after the CI APK builds.
+Device-level launch, touch-target and animation testing still needs to be performed on an Android phone after the CI APK builds.
