@@ -26,7 +26,7 @@ The All Versions page records the latest 20 Minecraft versions that this launche
 1. Keep your own legally obtained, original Minecraft Bedrock APK files in the phone's Files / Downloads folder.
 2. In the file manager, select one APK and choose **Share**.
 3. Choose **TSI Launcher Bedrock Edition** from the share sheet.
-4. TSI forwards that file URI to Android's package installer. Review the package details and confirm installation in Android.
+4. TSI forwards that file URI to Android's package installer. Android may first ask you to allow TSI to install unknown apps in system Settings; enable that only if you trust the APK source. Then review the package details and confirm installation in Android.
 5. Reopen TSI after the install; the newly detected installed version is recorded in local history.
 
 Only a single Minecraft Android package is installed for the device at a time. This is version replacement, not side-by-side multi-version execution. Keep each original APK file yourself; TSI does not download or redistribute Minecraft game packages.
@@ -49,7 +49,7 @@ Important limits:
 - **Version history:** locally records the latest 20 installed versions observed by this launcher.
 - **Launch:** starts the official installed Minecraft package through Android's package manager.
 - **Store and Beta controls:** opens the official Google Play listing so the user can manage Minecraft Beta enrollment.
-- **APK handoff:** receives a shared standalone APK URI and opens Android's system package installer with read permission.
+- **APK handoff:** receives a shared standalone APK URI and opens Android's system package installer with read permission. It declares `REQUEST_INSTALL_PACKAGES` for this user-initiated install flow; Android still requires the user to allow this source and confirm each installation.
 - **ABIs:** `arm64-v8a` and `armeabi-v7a`.
 - **App version:** 0.6.0.
 
