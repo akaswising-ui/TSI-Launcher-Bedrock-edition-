@@ -39,7 +39,7 @@ enum class TouchTarget {
     Profile, QuickSettings,
     HomeCard0, HomeCard1, HomeCard2, HomeCard3,
     HomeCard4, HomeCard5, HomeCard6, HomeCard7,
-    VersionRow,
+    VersionRow, VersionImport,
     ModsMarketplace, ModsCommunity, ModsGuide,
     ServersOfficial, ServersGuide,
     NewsOfficial, NewsHelp,
@@ -66,6 +66,7 @@ struct AppState {
     int width = 0;
     int height = 0;
     bool installed = false;
+    bool incomingIntentChecked = false;
     std::string version = "UNKNOWN";
     long long versionCode = 0;
     long long lastUpdateTime = 0;
@@ -557,6 +558,117 @@ bool launchIntent(AppState& s, const char* action, const char* uri, const char* 
     return launched;
 }
 
+
+bool forwardSharedApkToInstaller(AppState& s) {
+    if (s.incomingIntentChecked || !s.app || !s.app->activity) return false;
+    s.incomingIntentChecked = true;
+
+    bool attached = false;
+    JNIEnv* env = getEnv(s.app->activity->vm, attached);
+    if (!env) return false;
+
+    jobject activity = s.app->activity->clazz;
+    jclass activityClass = env->GetObjectClass(activity);
+    jmethodID getIntent = activityClass
+        ? env->GetMethodID(activityClass, "getIntent",
+                           "()Landroid/content/Intent;") : nullptr;
+    jobject incoming = getIntent
+        ? env->CallObjectMethod(activity, getIntent) : nullptr;
+    clearException(env);
+
+    bool forwarded = false;
+    if (incoming) {
+        jclass intentClass = env->GetObjectClass(incoming);
+        jmethodID getAction = intentClass
+            ? env->GetMethodID(intentClass, "getAction", "()Ljava/lang/String;")
+            : nullptr;
+        jstring action = getAction
+            ? static_cast<jstring>(env->CallObjectMethod(incoming, getAction))
+            : nullptr;
+        clearException(env);
+
+        bool isShare = false;
+        if (action) {
+            const char* value = env->GetStringUTFChars(action, nullptr);
+            if (value) {
+                isShare = std::string(value) == "android.intent.action.SEND";
+                env->ReleaseStringUTFChars(action, value);
+            }
+        }
+
+        if (isShare && intentClass) {
+            jmethodID getStream = env->GetMethodID(
+                intentClass, "getParcelableExtra",
+                "(Ljava/lang/String;)Landroid/os/Parcelable;");
+            jstring streamKey = env->NewStringUTF("android.intent.extra.STREAM");
+            jobject apkUri = getStream
+                ? env->CallObjectMethod(incoming, getStream, streamKey) : nullptr;
+            clearException(env);
+
+            if (apkUri) {
+                jclass outIntentClass = env->FindClass("android/content/Intent");
+                jmethodID constructor = outIntentClass
+                    ? env->GetMethodID(outIntentClass, "<init>", "()V") : nullptr;
+                jobject installerIntent = constructor
+                    ? env->NewObject(outIntentClass, constructor) : nullptr;
+                jmethodID setAction = outIntentClass
+                    ? env->GetMethodID(outIntentClass, "setAction",
+                        "(Ljava/lang/String;)Landroid/content/Intent;") : nullptr;
+                jmethodID setDataAndType = outIntentClass
+                    ? env->GetMethodID(outIntentClass, "setDataAndType",
+                        "(Landroid/net/Uri;Ljava/lang/String;)Landroid/content/Intent;")
+                    : nullptr;
+                jmethodID addFlags = outIntentClass
+                    ? env->GetMethodID(outIntentClass, "addFlags",
+                        "(I)Landroid/content/Intent;") : nullptr;
+
+                jstring viewAction = env->NewStringUTF("android.intent.action.VIEW");
+                jstring apkMime = env->NewStringUTF(
+                    "application/vnd.android.package-archive");
+                if (installerIntent && setAction && setDataAndType && addFlags &&
+                    viewAction && apkMime) {
+                    env->CallObjectMethod(installerIntent, setAction, viewAction);
+                    env->CallObjectMethod(installerIntent, setDataAndType,
+                                          apkUri, apkMime);
+                    // FLAG_GRANT_READ_URI_PERMISSION
+                    env->CallObjectMethod(installerIntent, addFlags, 0x00000001);
+                    clearException(env);
+
+                    jmethodID startActivity = activityClass
+                        ? env->GetMethodID(activityClass, "startActivity",
+                            "(Landroid/content/Intent;)V") : nullptr;
+                    if (startActivity) {
+                        env->CallVoidMethod(activity, startActivity, installerIntent);
+                        forwarded = !env->ExceptionCheck();
+                        clearException(env);
+                    }
+                }
+
+                if (viewAction) env->DeleteLocalRef(viewAction);
+                if (apkMime) env->DeleteLocalRef(apkMime);
+                if (installerIntent) env->DeleteLocalRef(installerIntent);
+                if (outIntentClass) env->DeleteLocalRef(outIntentClass);
+                env->DeleteLocalRef(apkUri);
+            }
+            if (streamKey) env->DeleteLocalRef(streamKey);
+        }
+
+        if (action) env->DeleteLocalRef(action);
+        if (intentClass) env->DeleteLocalRef(intentClass);
+        env->DeleteLocalRef(incoming);
+    }
+
+    if (activityClass) env->DeleteLocalRef(activityClass);
+    if (attached) s.app->activity->vm->DetachCurrentThread();
+
+    if (forwarded) {
+        s.status = "OPENED ANDROID APK INSTALLER - CONFIRM THE VERSION";
+    } else if (isShare) {
+        s.status = "APK SHARE RECEIVED BUT COULD NOT OPEN INSTALLER";
+    }
+    return forwarded;
+}
+
 void openPlayListing(AppState& s, bool betaManagement) {
     const char* marketUri =
         "market://details?id=com.mojang.minecraftpe";
@@ -748,6 +860,7 @@ TouchBounds boundsForTarget(const AppState& s, TouchTarget target) {
                     colW, 45.0f, 7.0f};
         }
         case TouchTarget::VersionRow: return {160, 246, contentW, 240, 7};
+        case TouchTarget::VersionImport: return {170, 422, 360, 44, 7};
         case TouchTarget::ModsMarketplace: return {170, 138, 370, 106, 8};
         case TouchTarget::ModsCommunity: return {550, 138, contentW - 390, 106, 8};
         case TouchTarget::ModsGuide: return {170, 260, contentW - 20, 106, 8};
@@ -1068,9 +1181,13 @@ void draw(AppState& s) {
                 text("NO SAVED VERSION", x + 42, y + 18, 1.0f, kMuted);
             }
         }
-        text("HISTORY RECORDS DO NOT CONTAIN INSTALLABLE APK FILES",
-             170, 452, 0.95f, kWarning);
-        text(s.status.substr(0, 80), 170, 478, 0.9f, kMuted);
+        rect(170, 422, 360, 44, green, 7);
+        text("IMPORT / SWITCH VERSION APK", 190, 437, 1.2f, kWhite);
+        text("FILE MANAGER: SHARE OFFICIAL APK TO TSI LAUNCHER",
+             170, 481, 0.85f, kMuted);
+        text("OLDER VERSIONS MAY REQUIRE UNINSTALLING CURRENT GAME",
+             170, 499, 0.82f, kWarning);
+        text(s.status.substr(0, 80), 170, 520, 0.82f, kMuted);
     } else if (s.page == Page::Mods) {
         text("MODS AND ADD-ONS", 170, 77, 2.1f, kWhite);
         text("BEDROCK CONTENT USES ADD-ONS, RESOURCE PACKS AND MARKETPLACE CONTENT",
@@ -1171,6 +1288,7 @@ void onCommand(android_app* app, int32_t command) {
         case APP_CMD_INIT_WINDOW:
             if (app->window && createGraphics(*s)) {
                 detectBedrock(*s);
+                forwardSharedApkToInstaller(*s);
                 startAnimation(*s);
                 draw(*s);
             } else {
@@ -1259,7 +1377,8 @@ TouchTarget targetAt(const AppState& s, float x, float y) {
         if (inside(x, y, canvasW - 203, 472, canvasW - 117, 506)) return TouchTarget::Profile;
         if (inside(x, y, canvasW - 110, 472, canvasW - 75, 506)) return TouchTarget::QuickSettings;
     } else if (s.page == Page::Versions) {
-        if (inside(x, y, 160, 205, canvasW - 16, 447)) return TouchTarget::VersionRow;
+        if (inside(x, y, 170, 422, 530, 466)) return TouchTarget::VersionImport;
+        if (inside(x, y, 160, 205, canvasW - 16, 415)) return TouchTarget::VersionRow;
     } else if (s.page == Page::Mods) {
         if (inside(x, y, 170, 138, 540, 244)) return TouchTarget::ModsMarketplace;
         if (inside(x, y, 550, 138, canvasW - 170, 244)) return TouchTarget::ModsCommunity;
@@ -1318,6 +1437,10 @@ void activateTarget(AppState& s, TouchTarget target) {
         case TouchTarget::HomeCard0:
             if (s.installed) handlePlay(s);
             else openPlayListing(s, false);
+            break;
+        case TouchTarget::VersionImport:
+            s.status = "OPEN FILE MANAGER, SELECT AN OFFICIAL APK, THEN SHARE TO TSI";
+            startAnimation(s);
             break;
         case TouchTarget::HomeCard1:
         case TouchTarget::HomeCard2:
