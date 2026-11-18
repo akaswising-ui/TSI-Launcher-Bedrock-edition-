@@ -2,7 +2,7 @@
 
 An Android companion launcher for the official Minecraft Bedrock app. The application layer is implemented in **C++17** with Android NDK `NativeActivity`, CMake, EGL and OpenGL ES 2.0. There are no Kotlin or Java application source files.
 
-## Launcher interface (0.6.0)
+## Launcher interface (0.7.0)
 
 The interface follows the structure of the supplied wide desktop-launcher reference while remaining an Android app:
 
@@ -19,47 +19,33 @@ The interface follows the structure of the supplied wide desktop-launcher refere
 
 The UI is a native OpenGL recreation of the reference's structure and visual style. It is not a pixel-for-pixel copy of the Windows desktop image. Desktop title-bar controls are visual chrome, not Android window-management controls.
 
-## Version switching with user-owned APKs
+## In-launcher official download buttons
 
-The All Versions page records the latest 20 Minecraft versions that this launcher has actually observed. It now supports handing a user-selected APK to Android's system installer:
+The **All Versions** page offers:
+- **Download Stable:** opens the official Minecraft Google Play listing in the Play Store. The user presses Install or Update there; Google Play delivers the official signed Android package.
+- **Get Beta:** opens the same official Play Store listing so the user can opt into or leave Minecraft Beta.
+- **All Release Notes / Version History:** opens Mojang's official Release Changelogs archive.
+- **Recently installed on this device:** shows the latest versions TSI has actually observed on the phone.
 
-1. Keep your own legally obtained, original Minecraft Bedrock APK files in the phone's Files / Downloads folder.
-2. In the file manager, select one APK and choose **Share**.
-3. Choose **TSI Launcher Bedrock Edition** from the share sheet.
-4. TSI forwards that file URI to Android's package installer. Android may first ask you to allow TSI to install unknown apps in system Settings; enable that only if you trust the APK source. Then review the package details and confirm installation in Android.
-5. Reopen TSI after the install; the newly detected installed version is recorded in local history.
+This removes the APK file import / Share workflow. TSI no longer declares `REQUEST_INSTALL_PACKAGES`, receives shared APK files, or attempts to install packages itself.
 
-Only a single Minecraft Android package is installed for the device at a time. This is version replacement, not side-by-side multi-version execution. Keep each original APK file yourself; TSI does not download or redistribute Minecraft game packages.
+### Historical-version download limitation
 
-Important limits:
+Mojang's public Android guidance directs users to update Minecraft through the mobile operating system's app store. Its Android Beta instructions also use Google Play opt-in; Beta replaces the normal Android client. Mojang publishes release notes and version history, but does not provide a public official archive of every historical Android APK binary.
 
-- Use an original, unmodified APK for the package `com.mojang.minecraftpe`. Android verifies package signatures; an APK signed with a different key cannot update the installed official app.
-- Android may reject installing an older version over a newer one. The launcher does not bypass Android's package manager or force a downgrade. Where Android refuses the downgrade, the existing Minecraft app may need to be uninstalled before the older APK can be installed, and this can erase its private game data.
-- **Export or back up every world from inside Minecraft before uninstalling or changing versions.** TSI cannot reliably copy Minecraft's private app data or restore every world's data layout.
-- Keep the APK archive outside Minecraft's app storage. TSI records version names it sees; it does not make an APK archive from that history.
-- This share flow accepts one standalone `.apk` file at a time. It does not combine split `.apks` / `.xapk` bundles or Windows `.appx` / `.msix` packages.
-- The launcher cannot promise every historical Bedrock build will run on every Android release or device. Compatibility depends on the game's minimum Android/API requirements, device ABI, graphics driver, and the selected build.
+Therefore, the Stable and Beta buttons download through the official Google Play distribution route. The changelog button gives access to historical release notes, **not old APK files**. TSI does not download proprietary historical Minecraft APKs from unofficial mirrors or redistribute game packages. If Mojang provides an official historical Android binary distribution channel in the future, a version-specific direct source can be added.
 
-## Native mobile launcher
-
-- **Application entry point:** Android `NativeActivity` loading `libtsi_bedrock.so`.
-- **Rendering:** C++17 and OpenGL ES 2.0, rounded panels and a compact bitmap typeface.
-- **Package detection:** JNI calls into Android `PackageManager` to inspect `com.mojang.minecraftpe`.
-- **Version information:** installed version name, full 64-bit version code on Android 9+, and last update timestamp.
-- **Version history:** locally records the latest 20 installed versions observed by this launcher.
-- **Launch:** starts the official installed Minecraft package through Android's package manager.
-- **Store and Beta controls:** opens the official Google Play listing so the user can manage Minecraft Beta enrollment.
-- **APK handoff:** receives a shared standalone APK URI and opens Android's system package installer with read permission. It declares `REQUEST_INSTALL_PACKAGES` for this user-initiated install flow; Android still requires the user to allow this source and confirm each installation.
-- **ABIs:** `arm64-v8a` and `armeabi-v7a`.
-- **App version:** 0.6.0.
+Official sources:
+- Mobile update instructions: https://help.minecraft.net/hc/en-us/articles/4409172223501-Manually-Update-Minecraft-on-Mobile-Devices
+- Beta instructions: https://help.minecraft.net/hc/en-us/articles/4423653831821
+- Official release changelogs: https://feedback.minecraft.net/hc/en-us/sections/360001186971-Release-Changelogs
+- Google Play listing: https://play.google.com/store/apps/details?id=com.mojang.minecraftpe
 
 ## Android version-management limits
 
-The standard Android Minecraft app uses package `com.mojang.minecraftpe`. Google Play manages the official installation and updates it in place. The launcher does not keep multiple official Bedrock versions installed side by side, create a historical release archive, bypass Play Store licensing, or change Android's package signature / downgrade rules.
+The standard Android Minecraft app uses package `com.mojang.minecraftpe`. Google Play manages the official installation and updates it in place. Android installs one package at a time; this launcher cannot keep multiple official Bedrock Android versions installed side by side, downgrade the game against Android package-manager rules, bypass licensing, or change package signatures.
 
-Minecraft Beta enrollment is managed through Google Play. Joining Beta replaces the normal Minecraft client; it is not a second independently installed Android client. The Android package API does not expose a reliable flag proving whether a Google Play account is enrolled in Beta. TSI therefore opens the official Play listing for channel changes and refreshes the detected version when the app regains focus.
-
-Back up worlds before changing channels or installing another game version because the selected version may have a different world format or app-data behavior.
+Minecraft Beta enrollment is managed through Google Play. Joining Beta replaces the normal Minecraft client; it is not a second independently installed Android client. Back up worlds before changing channels because test builds can be unstable and world data may not be compatible across versions.
 
 ## Windows launchers are a different platform
 
@@ -67,7 +53,7 @@ The Windows Bedrock Launcher works with Windows Store package formats and Window
 
 ## Scope and safety
 
-Minecraft Bedrock is proprietary. TSI does not host, patch, unpack, or redistribute Minecraft game packages or data. Android's package manager and the official signed application remain responsible for game installation and updates.
+Minecraft Bedrock is proprietary. TSI does not host, patch, unpack, or redistribute Minecraft game packages or data. Android's package manager and Google Play remain responsible for official game installation and updates.
 
 The local version history is stored in the launcher's private app data directory and is capped at 20 entries. It is not an authoritative Mojang release archive.
 
@@ -91,4 +77,4 @@ APK output:
 
 GitHub Actions builds and verifies the native library for both configured ABIs on pull requests to `main`, pushes to `main`, and manual workflow runs. The uploaded artifact is named `TSI-Launcher-Bedrock-native-debug`.
 
-Device-level APK share, Android installer handoff, touch-target and game-launch testing still needs to be performed on an Android phone after the CI APK builds.
+Device-level verification of Play Store routing, Beta opt-in, touch-target and game-launch behavior still needs to be performed on an Android phone after the CI APK builds.
