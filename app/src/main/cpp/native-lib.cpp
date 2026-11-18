@@ -564,12 +564,7 @@ void openPlayListing(AppState& s, bool betaManagement) {
     const char* webUri =
         "https://play.google.com/store/apps/details?id=com.mojang.minecraftpe";
     const char* action = "android.intent.action.VIEW";
-    bool opened = false;
-    if (betaManagement) {
-        opened = launchIntent(s, action, marketUri, nullptr);
-    } else {
-        opened = launchIntent(s, action, webUri, nullptr);
-    }
+    bool opened = launchIntent(s, action, marketUri, nullptr);
     if (!opened) opened = launchIntent(s, action, webUri, nullptr);
     s.status = opened
         ? (betaManagement ? "MANAGE BETA IN GOOGLE PLAY" : "OPENED GOOGLE PLAY")
@@ -1332,8 +1327,8 @@ void activateTarget(AppState& s, TouchTarget target) {
             break;
         case TouchTarget::SearchVersions:
             openWebsite(s,
-                "https://www.google.com/search?q=Minecraft+Bedrock+version+history",
-                "OPENED VERSION SEARCH");
+                "https://feedback.minecraft.net/hc/en-us/sections/360001186971-Release-Changelogs",
+                "OPENED OFFICIAL VERSION HISTORY");
             break;
         case TouchTarget::FilterStable:
             s.activeFilter = 0; s.status = "SHOWING STABLE LOCAL RECORDS"; startAnimation(s); break;
