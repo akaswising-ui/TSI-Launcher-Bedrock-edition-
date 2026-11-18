@@ -78,6 +78,9 @@ struct AppState {
     Clock::time_point pressStart = Clock::now();
     bool rippleActive = false;
     TouchTarget rippleTarget = TouchTarget::None;
+    bool releaseScaleActive = false;
+    TouchTarget releaseTarget = TouchTarget::None;
+    Clock::time_point releaseScaleStart = Clock::now();
     float rippleX = 0.0f;
     float rippleY = 0.0f;
     Clock::time_point rippleStart = Clock::now();
@@ -672,6 +675,31 @@ TouchBounds boundsForTarget(TouchTarget target) {
     return {0, 0, 0, 0, 0};
 }
 
+bool getTouchScale(const AppState& s, TouchBounds& bounds, float& factor) {
+    if (s.touchDown && s.pressedTarget != TouchTarget::None) {
+        bounds = boundsForTarget(s.pressedTarget);
+        const float elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - s.pressStart).count();
+        const float t = std::clamp(elapsed / 90.0f, 0.0f, 1.0f);
+        const float eased = 1.0f - std::pow(1.0f - t, 2.0f);
+        factor = 1.0f - 0.045f * eased;
+        return true;
+    }
+    if (s.releaseScaleActive && s.releaseTarget != TouchTarget::None) {
+        bounds = boundsForTarget(s.releaseTarget);
+        const float elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - s.releaseScaleStart).count();
+        const float t = std::clamp(elapsed / 190.0f, 0.0f, 1.0f);
+        constexpr float c1 = 1.70158f;
+        constexpr float c3 = c1 + 1.0f;
+        const float spring = 1.0f + c3 * std::pow(t - 1.0f, 3.0f) +
+                             c1 * std::pow(t - 1.0f, 2.0f);
+        factor = 0.955f + 0.045f * spring;
+        return true;
+    }
+    return false;
+}
+
 void drawTouchFeedback(std::vector<float>& vertices, const AppState& s,
                        float scale, float ox, float oy, int sw, int sh) {
     if (s.touchDown && s.pressedTarget != TouchTarget::None) {
@@ -721,15 +749,46 @@ void draw(AppState& s) {
     const float slide = 14.0f * (1.0f - progress);
 
     auto rect = [&](float x, float y, float w, float h, Color color, float radius = 0.0f) {
-        addRoundedRect(vertices, ox + x * scale, oy + (y + slide) * scale,
-                       w * scale, h * scale, radius * scale,
+        float drawX = x;
+        float drawY = y + slide;
+        float drawW = w;
+        float drawH = h;
+        TouchBounds touchBounds{};
+        float touchScale = 1.0f;
+        if (getTouchScale(s, touchBounds, touchScale) &&
+            x >= touchBounds.x - 0.5f && y >= touchBounds.y - 0.5f &&
+            x + w <= touchBounds.x + touchBounds.width + 0.5f &&
+            y + h <= touchBounds.y + touchBounds.height + 0.5f) {
+            const float cx = touchBounds.x + touchBounds.width * 0.5f;
+            const float cy = touchBounds.y + touchBounds.height * 0.5f;
+            drawX = cx + (x - cx) * touchScale;
+            drawY = cy + (y - cy) * touchScale + slide;
+            drawW = w * touchScale;
+            drawH = h * touchScale;
+        }
+        addRoundedRect(vertices, ox + drawX * scale, oy + drawY * scale,
+                       drawW * scale, drawH * scale, radius * scale,
                        color, s.width, s.height);
     };
     auto text = [&](const std::string& value, float x, float y,
                     float pixel, Color color, bool moving = true) {
         const float offset = moving ? slide : 0.0f;
-        addText(vertices, value, ox + x * scale, oy + (y + offset) * scale,
-                pixel * scale, color, s.width, s.height);
+        float drawX = x;
+        float drawY = y + offset;
+        float drawPixel = pixel;
+        TouchBounds touchBounds{};
+        float touchScale = 1.0f;
+        if (getTouchScale(s, touchBounds, touchScale) &&
+            x >= touchBounds.x - 2.0f && x <= touchBounds.x + touchBounds.width &&
+            y >= touchBounds.y - 2.0f && y <= touchBounds.y + touchBounds.height) {
+            const float cx = touchBounds.x + touchBounds.width * 0.5f;
+            const float cy = touchBounds.y + touchBounds.height * 0.5f;
+            drawX = cx + (x - cx) * touchScale;
+            drawY = cy + (y - cy) * touchScale + offset;
+            drawPixel = pixel * touchScale;
+        }
+        addText(vertices, value, ox + drawX * scale, oy + drawY * scale,
+                drawPixel * scale, color, s.width, s.height);
     };
 
     rect(0, 0, 360, 720, kBackground);
@@ -1013,9 +1072,14 @@ int32_t onInput(android_app* app, AInputEvent* event) {
             s->rippleY = y;
             s->rippleStart = Clock::now();
             s->rippleActive = true;
+            s->releaseTarget = releasedTarget;
+            s->releaseScaleStart = Clock::now();
+            s->releaseScaleActive = true;
             activateTarget(*s, releasedTarget);
         } else {
             s->rippleActive = false;
+            s->releaseScaleActive = false;
+            s->releaseTarget = TouchTarget::None;
         }
 
         draw(*s);
@@ -1043,7 +1107,8 @@ void android_main(android_app* app) {
             timeout, nullptr, &events, reinterpret_cast<void**>(&source));
         if (result >= 0 && source) source->process(app, source);
 
-        bool needsFrame = state.touchDown || state.rippleActive;
+        bool needsFrame = state.touchDown || state.rippleActive ||
+                          state.releaseScaleActive;
         if (state.animationActive) {
             const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
                 Clock::now() - state.animationStart).count();
@@ -1059,6 +1124,15 @@ void android_main(android_app* app) {
                     Clock::now() - state.rippleStart).count();
             if (rippleElapsed >= 330) {
                 state.rippleActive = false;
+            }
+        }
+        if (state.releaseScaleActive) {
+            const auto releaseElapsed =
+                std::chrono::duration_cast<std::chrono::milliseconds>(
+                    Clock::now() - state.releaseScaleStart).count();
+            if (releaseElapsed >= 190) {
+                state.releaseScaleActive = false;
+                state.releaseTarget = TouchTarget::None;
             }
         }
         if (needsFrame) draw(state);
