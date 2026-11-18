@@ -622,7 +622,7 @@ bool forwardSharedApkToInstaller(AppState& s) {
                     ? env->GetMethodID(outIntentClass, "addFlags",
                         "(I)Landroid/content/Intent;") : nullptr;
 
-                jstring viewAction = env->NewStringUTF("android.intent.action.VIEW");
+                jstring viewAction = env->NewStringUTF("android.intent.action.INSTALL_PACKAGE");
                 jstring apkMime = env->NewStringUTF(
                     "application/vnd.android.package-archive");
                 if (installerIntent && setAction && setDataAndType && addFlags &&
