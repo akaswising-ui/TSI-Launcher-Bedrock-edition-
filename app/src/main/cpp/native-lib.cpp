@@ -10,6 +10,8 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cctype>
+#include <cstddef>
 #include <cmath>
 #include <cstdio>
 #include <fstream>
@@ -549,13 +551,13 @@ float pageIndex(Page page) {
 }
 
 void drawNavigation(std::vector<float>& vertices, const AppState& s,
-                    float scale, float ox, int sw, int sh, float progress) {
+                    float scale, float ox, float oy, int sw, int sh, float progress) {
     auto rect = [&](float x, float y, float w, float h, Color color, float radius) {
-        addRoundedRect(vertices, ox + x * scale, y * scale, w * scale, h * scale,
+        addRoundedRect(vertices, ox + x * scale, oy + y * scale, w * scale, h * scale, 
                        radius * scale, color, sw, sh);
     };
     auto text = [&](const std::string& value, float x, float y, float pixel, Color color) {
-        addText(vertices, value, ox + x * scale, y * scale,
+        addText(vertices, value, ox + x * scale, oy + y * scale, 
                 pixel * scale, color, sw, sh);
     };
 
@@ -684,7 +686,7 @@ void draw(AppState& s) {
         text(s.status.substr(0, 39), 20, 641, 1.05f, kMuted);
     }
 
-    drawNavigation(vertices, s, scale, ox, s.width, s.height, progress);
+    drawNavigation(vertices, s, scale, ox, oy, s.width, s.height, progress);
 
     glViewport(0, 0, s.width, s.height);
     glClearColor(kBackground.r, kBackground.g, kBackground.b, 1.0f);
